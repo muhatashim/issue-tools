@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "issue-tools"
+version = "0.1.0"
+description = "CLI tool for indexing and searching GitHub issues with embeddings"
+authors = [{name = "AI Assistant"}]
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "typer[all]",
+    "requests",
+    "rich",
+    "numpy",
+    "python-dotenv",
+    "fastapi",
+    "fastmcp",
+    "uvicorn",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest",
+]
+
+[project.scripts]
+issue-tools = "issue_tools.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

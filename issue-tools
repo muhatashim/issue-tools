@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VENV_PATH="${VENV_PATH:-${ROOT_DIR}/.venv}"
+CLI_BIN="${CLI_BIN:-${VENV_PATH}/bin/issue-tools}"
+
+if [[ ! -x "$CLI_BIN" ]]; then
+  echo "error: issue-tools CLI not found at ${CLI_BIN}." >&2
+  echo "Run ./scripts/install.sh first." >&2
+  exit 1
+fi
+
+exec "$CLI_BIN" "$@"

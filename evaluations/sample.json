@@ -1,0 +1,4 @@
+[
+  {"query": "example bug report", "expected_numbers": [1]},
+  {"query": "documentation update", "expected_numbers": [2]}
+]
