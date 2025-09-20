@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Iterable, List, Optional, Literal
 
 from .clustering import Cluster as RawCluster, kmeans, cluster_documents, gather_documents_for_clustering
@@ -142,7 +142,7 @@ class StreamItemSummary:
     updated_at: str
     created_at: str
     author: Optional[str]
-    labels: List[str]
+    labels: List[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)
