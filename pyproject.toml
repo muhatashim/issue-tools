@@ -26,7 +26,7 @@ test = [
 ]
 
 [project.scripts]
-issue-tools = "issue_tools.cli:app"
+issue-tools = "issue_tools.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

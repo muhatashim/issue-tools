@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Optional
 
 from .embeddings import EmbeddingsClient
@@ -21,10 +21,10 @@ class SearchMatch:
     state: str
     doc_type: str
     labels: List[str]
-    label_details: List[LabelDetail]
     updated_at: str
     created_at: str
     author: Optional[str]
+    label_details: List[LabelDetail] = field(default_factory=list)
 
 
 class SearchService:

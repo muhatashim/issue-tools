@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
+import shlex
+import sys
 from pathlib import Path
-from typing import Callable, Optional, TypeVar
+from typing import Callable, Optional, Sequence, TypeVar
 
 import typer
 from rich.console import Console
 from rich.style import Style
 from rich.table import Table
 from rich.text import Text
+
+from typer._completion_shared import Shells
+import typer._completion_shared as completion_shared
 
 from .commands import (
     CommandError,
@@ -41,7 +46,172 @@ from .runtime import ConfigurationError, application_services
 app = typer.Typer(add_completion=True)
 console = Console()
 
+_CANONICAL_PROG_NAME = "issue-tools"
+
 T = TypeVar("T")
+
+
+def _find_wrapper_path() -> Path | None:
+    """Return the path to the project wrapper script if it exists."""
+
+    root = Path(__file__).resolve().parents[2]
+    candidate = root / _CANONICAL_PROG_NAME
+    if candidate.is_file():
+        return candidate.resolve()
+    return None
+
+
+def _completion_aliases(invoked_path: str, wrapper_path: Path | None) -> list[str]:
+    """Build a list of additional command names for completions."""
+
+    aliases: list[str] = []
+    seen: set[str] = set()
+
+    def _add(value: Optional[str]) -> None:
+        if not value:
+            return
+        if value == _CANONICAL_PROG_NAME:
+            return
+        if value in seen:
+            return
+        aliases.append(value)
+        seen.add(value)
+
+    _add(invoked_path)
+    if wrapper_path is not None:
+        _add("./issue-tools")
+        _add(str(wrapper_path))
+
+    return aliases
+
+
+def _augment_completion_script(
+    script: str, shell: str, aliases: Sequence[str], wrapper_path: Path | None
+) -> str:
+    """Extend the generated completion script for local execution."""
+
+    base = script.rstrip("\n")
+    additions: list[str] = []
+    alias_list = [alias for alias in aliases if alias and alias != _CANONICAL_PROG_NAME]
+
+    if shell == Shells.bash.value:
+        if wrapper_path is not None and "alias issue-tools=" not in base:
+            quoted = shlex.quote(str(wrapper_path))
+            additions.extend(
+                [
+                    "if ! command -v issue-tools >/dev/null 2>&1; then",
+                    f"    alias issue-tools={quoted}",
+                    "fi",
+                ]
+            )
+        for alias in alias_list:
+            line = f"complete -o default -F _issue_tools_completion {alias}"
+            if line not in base:
+                additions.append(line)
+    elif shell == Shells.zsh.value:
+        if wrapper_path is not None and "alias issue-tools=" not in base:
+            quoted = shlex.quote(str(wrapper_path))
+            additions.append(
+                "\n".join(
+                    [
+                        "if ! command -v issue-tools >/dev/null 2>&1; then",
+                        f"  alias issue-tools={quoted}",
+                        "fi",
+                    ]
+                )
+            )
+        for alias in alias_list:
+            line = f"compdef _issue_tools_completion {alias}"
+            if line not in base:
+                additions.append(line)
+    elif shell == Shells.fish.value:
+        if wrapper_path is not None and "function issue-tools" not in base:
+            path = str(wrapper_path)
+            additions.append(
+                "\n".join(
+                    [
+                        "if not type -q issue-tools",
+                        "    function issue-tools",
+                        f"        {path} $argv",
+                        "    end",
+                        "end",
+                    ]
+                )
+            )
+        for alias in alias_list:
+            line = (
+                f"complete --command {alias} --no-files --arguments \"(env _ISSUE_TOOLS_COMPLETE=complete_fish "
+                "_TYPER_COMPLETE_FISH_ACTION=get-args _TYPER_COMPLETE_ARGS=(commandline -cp) issue-tools)\" "
+                "--condition \"env _ISSUE_TOOLS_COMPLETE=complete_fish _TYPER_COMPLETE_FISH_ACTION=is-args "
+                "_TYPER_COMPLETE_ARGS=(commandline -cp) issue-tools\""
+            )
+            if line not in base:
+                additions.append(line)
+    elif shell in {Shells.powershell.value, "pwsh"}:
+        if wrapper_path is not None and "function issue-tools" not in base:
+            path = str(wrapper_path).replace("'", "''")
+            additions.append(
+                "\n".join(
+                    [
+                        "$existing = Get-Command issue-tools -ErrorAction SilentlyContinue",
+                        "if (-not $existing) {",
+                        f"    function issue-tools {{ & '{path}' @Args }}",
+                        "}",
+                    ]
+                )
+            )
+
+    if additions:
+        base = "\n".join([base, *additions])
+    return base + "\n"
+
+
+def _detect_shell(provided: Optional[str]) -> str:
+    if provided:
+        return provided
+    if completion_shared.shellingham is not None:
+        detected, _ = completion_shared.shellingham.detect_shell()
+        if detected:
+            return detected
+    return Shells.bash.value
+
+
+def _handle_completion(action: str, args: list[str], invoked_path: str) -> None:
+    shell_arg = args[0] if args else None
+    wrapper_path = _find_wrapper_path()
+    aliases = _completion_aliases(invoked_path, wrapper_path)
+    complete_var = f"_{_CANONICAL_PROG_NAME.replace('-', '_').upper()}_COMPLETE"
+
+    if action == "--show-completion":
+        shell = _detect_shell(shell_arg)
+        script = completion_shared.get_completion_script(
+            prog_name=_CANONICAL_PROG_NAME, complete_var=complete_var, shell=shell
+        )
+        script = _augment_completion_script(script, shell, aliases, wrapper_path)
+        console.print(script, highlight=False)
+        return
+
+    shell, installed_path = completion_shared.install(
+        shell=shell_arg, prog_name=_CANONICAL_PROG_NAME, complete_var=complete_var
+    )
+    script = installed_path.read_text()
+    script = _augment_completion_script(script, shell, aliases, wrapper_path)
+    installed_path.write_text(script)
+    console.print(f"{shell} completion installed in {installed_path}")
+    console.print("Completion will take effect once you restart the terminal")
+
+
+def main(argv: Optional[Sequence[str]] = None) -> None:
+    args = list(argv if argv is not None else sys.argv[1:])
+    invoked = (argv[0] if argv is not None and len(argv) > 0 else sys.argv[0]) or _CANONICAL_PROG_NAME
+
+    if args and args[0] in {"--install-completion", "--show-completion"}:
+        action = args[0]
+        _handle_completion(action, args[1:], invoked)
+        return
+
+    prog_name = Path(invoked).name or _CANONICAL_PROG_NAME
+    app(prog_name=prog_name)
 
 
 def _invoke(callback: Callable[[object], T], *, require_gemini_api_key: bool = True) -> T:
